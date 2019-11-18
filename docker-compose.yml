@@ -1,0 +1,72 @@
+version: "3"
+
+services:
+  story_server:
+    build: ./server/
+    container_name: story_server
+    working_dir: /var/www/server
+    ports:
+      - "$SERVER_PORT:$SERVER_PORT"
+    volumes:
+      - ./server/:/var/www/server
+      - ./client/:/var/www/client/
+    command: python manage.py runserver 0.0.0.0:$SERVER_PORT
+    environment:
+      - DJANGO_SETTINGS_MODULE=$DJANGO_SETTINGS_MODULE
+      - PGHOST=$DATABASE_HOST
+    env_file:
+      - .env
+    depends_on:
+      - story_database
+      - story_redis
+      - story_celery
+
+  story_database:
+    container_name: story_database
+    image: postgres:latest
+    volumes:
+      - ./initial.sql:/docker-entrypoint-initdb.d/initial.sql
+      
+  story_redis:
+    image: redis:latest
+    container_name: story_redis
+    ports:
+      - "$REDIS_PORT:$REDIS_PORT"
+    privileged: true
+    sysctls:
+      net.core.somaxconn: "511"
+
+  story_celery:
+    build:
+      context: ./server/
+      dockerfile: Dockerfile
+    container_name: story_celery
+    working_dir: /var/www/server
+    volumes:
+      - ./server/:/var/www/server
+    command: /bin/bash -c "celery -A server worker --loglevel=info"
+    depends_on:
+      - story_redis
+      - story_database
+    env_file:
+      - .env
+    environment:
+      - DJANGO_SETTINGS_MODULE=$DJANGO_SETTINGS_MODULE
+      - PGHOST=$DATABASE_HOST
+
+  story_monitor:
+    build:
+      context: ./server/
+      dockerfile: Dockerfile
+    container_name: story_monitor
+    working_dir: /var/www/server
+    volumes:
+      - ./server/:/var/www/server
+    command: /bin/bash -c "flower -A server --port=$FLOWER_PORT"
+    env_file:
+      - .env
+    depends_on:
+      - story_celery
+      - story_redis
+    ports:
+      - "$FLOWER_PORT:$FLOWER_PORT"
